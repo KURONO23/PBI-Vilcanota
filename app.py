@@ -1,15 +1,9 @@
 # ============================================================
-# TÍTULO: PISCO_HyD_ARNOVIC + PBI (STREAMLIT OPTIMIZADO)
-# - PRONÓSTICO + PBI
-# - Lee parquet desde Google Drive con cuenta de servicio
-# - Usa shapes locales desde carpeta fija
-# - Corrige el 29 de febrero en climatología
-# - Evita claves duplicadas en Streamlit / st_folium
-# - Maneja fallback local si falla Google Drive
-# - Corrige CRS y zoom automático en mapas PBI
-# - PBI sin checks, con leyenda flotante y cards de exposición
-# - CORREGIDO: HTML con st.html()
-# - CORREGIDO: zoom también en Pronóstico día 1, 2 y 3
+# TÍTULO: PISCO_HyD_ARNOVIC + PBI (STREAMLIT LISTO PARA DEPLOY)
+# - Funciona local y en Streamlit Community Cloud
+# - Usa rutas relativas al repositorio
+# - Lee secretos desde st.secrets en la nube
+# - Si existe google-service.json local, también puede usarlo
 # ============================================================
 
 from __future__ import annotations
@@ -41,9 +35,13 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-BASE_DIR = Path(r"C:\Users\mgutierrez\Documents\POI-MAX\POI 2026\Avances Vilcanota-POI\PBI-MAX")
+# IMPORTANTE:
+# En GitHub / Streamlit Cloud, BASE_DIR será la carpeta del repo.
+BASE_DIR = Path(__file__).resolve().parent
 
+# Opción local (NO subir este archivo a GitHub)
 JSON_GOOGLE = BASE_DIR / "google-service.json"
+
 DRIVE_FOLDER_ID = "176HOIc10u-_d-sZUkF94zmjgQi3CDYXM"
 
 DATA_DIR = BASE_DIR / "tmp_data"
@@ -295,14 +293,6 @@ def coerce_crs_safely(gdf: Optional[gpd.GeoDataFrame]):
 
         return gdf.set_crs(CRS_METRICO, allow_override=True)
 
-    return gdf
-
-
-def ensure_crs(gdf: Optional[gpd.GeoDataFrame], epsg: int = CRS_WGS):
-    if gdf is None:
-        return None
-    if gdf.crs is None:
-        gdf = gdf.set_crs(epsg)
     return gdf
 
 
@@ -567,14 +557,26 @@ def exp_cards_html(df: pd.DataFrame) -> str:
 # ============================================================
 @st.cache_resource
 def get_drive_service():
-    if not JSON_GOOGLE.exists():
-        raise FileNotFoundError(f"No existe el JSON de cuenta de servicio: {JSON_GOOGLE}")
+    # 1) Prioridad: Secrets de Streamlit Cloud
+    if "gcp_service_account" in st.secrets:
+        creds = service_account.Credentials.from_service_account_info(
+            dict(st.secrets["gcp_service_account"]),
+            scopes=["https://www.googleapis.com/auth/drive.readonly"]
+        )
+        return build("drive", "v3", credentials=creds)
 
-    creds = service_account.Credentials.from_service_account_file(
-        str(JSON_GOOGLE),
-        scopes=["https://www.googleapis.com/auth/drive.readonly"]
+    # 2) Fallback local: JSON en tu PC
+    if JSON_GOOGLE.exists():
+        creds = service_account.Credentials.from_service_account_file(
+            str(JSON_GOOGLE),
+            scopes=["https://www.googleapis.com/auth/drive.readonly"]
+        )
+        return build("drive", "v3", credentials=creds)
+
+    raise FileNotFoundError(
+        "No se encontraron credenciales de Google. "
+        "En Streamlit Cloud usa st.secrets; localmente puedes usar google-service.json."
     )
-    return build("drive", "v3", credentials=creds)
 
 
 def download_drive_file(service, folder_id: str, filename: str, dest: Path):
