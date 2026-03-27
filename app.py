@@ -588,7 +588,7 @@ def make_station_map(est_sel: gpd.GeoDataFrame):
 
     m = folium.Map(
         location=[lat, lon],
-        zoom_start=13,
+        zoom_start=7,
         tiles="OpenStreetMap",
         control_scale=True
     )
