@@ -778,20 +778,12 @@ def load_estaciones():
 
 
 @st.cache_data(show_spinner=True)
-def load_base_layers(zone_key: str):
-    zone_dir = zone_dir_from_key(zone_key)
-
-    file_agricola = zone_dir / "Agricola.shp"
-    file_poblacion = zone_dir / "Poblacion.shp"
-    file_vial = zone_dir / "Red Vial.shp"
-    file_edu = zone_dir / "Instituciones Educativas.shp"
-    file_salud = zone_dir / "Puesto de Salud.shp"
-
-    agri = safe_read_gdf(file_agricola)
-    pop = safe_read_gdf(file_poblacion)
-    vial = safe_read_gdf(file_vial)
-    edu = safe_read_gdf(file_edu)
-    salud = safe_read_gdf(file_salud)
+def load_base_layers():
+    agri = safe_read_gdf(FILE_AGRICOLA)
+    pop = safe_read_gdf(FILE_POBLACION)
+    vial = safe_read_gdf(FILE_VIAL)
+    edu = safe_read_gdf(FILE_EDU)
+    salud = safe_read_gdf(FILE_SALUD)
 
     if pop is not None:
         colp = find_col(pop.columns, [
@@ -808,23 +800,19 @@ def load_base_layers(zone_key: str):
         "vial_wgs": vial,
         "edu_wgs": edu,
         "salud_wgs": salud,
-        "zone_key": zone_key,
     }
 
 
 @st.cache_data(show_spinner=True)
-def load_flood_index(zone_key: str):
-    zone_dir = zone_dir_from_key(zone_key)
-    file_inundacion = zone_dir / inundacion_filename_for_zone(zone_key)
-
-    if not file_inundacion.exists():
+def load_flood_index():
+    if not FILE_INUNDACION.exists():
         return gpd.GeoDataFrame(
             columns=["Distrito", "Caudal", "COMID", "ZONA_UTM", "geometry"],
             geometry="geometry",
             crs="EPSG:4326"
         )
 
-    g = gpd.read_file(str(file_inundacion))
+    g = gpd.read_file(str(FILE_INUNDACION))
     g = coerce_crs_safely(g)
     g = to_wgs(g)
 
@@ -853,7 +841,7 @@ def load_flood_index(zone_key: str):
     tmp["COMID"] = pd.to_numeric(tmp["COMID"], errors="coerce")
 
     if "ZONA_UTM" not in tmp.columns:
-        tmp["ZONA_UTM"] = zone_key.replace("utm", "").replace("s", "")
+        tmp["ZONA_UTM"] = None
 
     tmp = tmp.dropna(subset=["Distrito", "Caudal", "COMID", "geometry"])
     tmp = gpd.GeoDataFrame(tmp, geometry="geometry", crs="EPSG:4326")
@@ -1187,7 +1175,7 @@ with tab_pron:
     with col_left:
         opciones = estaciones_validas["COMID"].astype(float).tolist()
         etiquetas = {
-            float(row["COMID"]): f"{row['Estacion']} | COMID {row['COMID']} | {row.get('ZONA_FOLDER', '')}"
+            float(row["COMID"]): f"{row['Estacion']} | COMID {row['COMID']}"
             for _, row in estaciones_validas.iterrows()
         }
 
@@ -1203,13 +1191,14 @@ with tab_pron:
         if comid_prev != st.session_state.comid_sel:
             for _k in ["dist_now", "dist_d1", "dist_d2", "dist_d3"]:
                 st.session_state[_k] = None
+            st.rerun()
 
         est_sel = estaciones_validas[
             estaciones_validas["COMID"].astype(float) == float(st.session_state.comid_sel)
         ].copy()
 
         m_est = make_folium_map(tiles="OpenStreetMap")
-        add_gdf_to_map(m_est, est_sel, "#2C7FB8", fill=True, weight=3, tooltip_fields=["Estacion", "COMID"])
+        add_gdf_to_map(m_est, est_sel, "#1E90FF", fill=True, weight=3, tooltip_fields=["Estacion", "COMID"])
         fit_map_to_gdf(m_est, est_sel)
 
         st_folium(
@@ -1266,7 +1255,7 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
                 st.warning(f"No se detectaron distritos para el COMID seleccionado en la zona {base_layers.get('zone_key', '')}.")
                 distrito_sel = None
 
-    flood_gdf = flood_geom_from_qd(flood_index, q_val, distrito_sel, float(st.session_state.comid_sel))
+    flood_gdf = flood_geom_from_qd(flood_index, q_val, distrito_sel, float(st.session_state.comid_sel)) if distrito_sel else None
     exp = compute_exposures(base_layers, flood_gdf)
 
     q_key = safe_key_piece(round(q_val, 2) if pd.notna(q_val) else "na")
