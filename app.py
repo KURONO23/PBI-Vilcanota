@@ -453,9 +453,18 @@ def hydro_year_start(d: pd.Timestamp) -> pd.Timestamp:
 
 def map_to_ref_dates(dates: pd.Series, ref_year: int = REF_YEAR) -> pd.Series:
     out = []
-    for d in pd.to_datetime(dates):
+    for d in pd.to_datetime(dates, errors="coerce"):
+        if pd.isna(d):
+            out.append(pd.NaT)
+            continue
+
         yy = ref_year if d.month >= 9 else ref_year + 1
-        out.append(pd.Timestamp(year=yy, month=d.month, day=d.day))
+
+        try:
+            out.append(pd.Timestamp(year=yy, month=d.month, day=d.day))
+        except Exception:
+            out.append(pd.NaT)
+
     return pd.Series(out, index=dates.index)
 
 
