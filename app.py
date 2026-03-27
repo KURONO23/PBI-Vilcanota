@@ -504,15 +504,28 @@ def fit_map_to_gdf(
         try:
             if geom_types.issubset({"Point", "MultiPoint"}):
                 geom = candidate.geometry.iloc[0]
+
                 if geom.geom_type == "Point":
-                    m.location = [geom.y, geom.x]
-                    m.zoom_start = 14
-                    return True
+                    lon = float(geom.x)
+                    lat = float(geom.y)
                 elif geom.geom_type == "MultiPoint" and len(geom.geoms) > 0:
                     pt = list(geom.geoms)[0]
-                    m.location = [pt.y, pt.x]
-                    m.zoom_start = 14
-                    return True
+                    lon = float(pt.x)
+                    lat = float(pt.y)
+                else:
+                    return False
+
+                # Corrección automática si vinieran invertidas
+                if (lat < -40 or lat > 20) and (-30 <= lon <= 30):
+                    lat, lon = lon, lat
+
+                dx = 0.03
+                dy = 0.03
+                m.fit_bounds([
+                    [lat - dy, lon - dx],
+                    [lat + dy, lon + dx]
+                ])
+                return True
         except Exception:
             pass
 
@@ -569,8 +582,7 @@ def make_station_map(est_sel: gpd.GeoDataFrame):
             lon = float(c.x)
             lat = float(c.y)
 
-    # Corrección automática si vienen invertidas
-    # Caso típico malo: lat ≈ -72 y lon ≈ -13
+    # Corrección automática si vinieran invertidas
     if (lat < -40 or lat > 20) and (-30 <= lon <= 30):
         lat, lon = lon, lat
 
@@ -581,7 +593,6 @@ def make_station_map(est_sel: gpd.GeoDataFrame):
         control_scale=True
     )
 
-    # Punto azul
     folium.CircleMarker(
         location=[lat, lon],
         radius=7,
@@ -592,6 +603,13 @@ def make_station_map(est_sel: gpd.GeoDataFrame):
         fill_opacity=1.0,
         tooltip=f"{est_sel.iloc[0]['Estacion']} | COMID {est_sel.iloc[0]['COMID']}"
     ).add_to(m)
+
+    dx = 0.03
+    dy = 0.03
+    m.fit_bounds([
+        [lat - dy, lon - dx],
+        [lat + dy, lon + dx]
+    ])
 
     return m
 
@@ -1426,6 +1444,7 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
 
         m1 = make_folium_map(tiles="OpenStreetMap")
         add_gdf_to_map(m1, flood_gdf, "#1E90FF", fill=True, weight=3)
+        add_gdf_to_map(m1, station_gdf, "#1E90FF", fill=True, weight=3, tooltip_fields=["Estacion", "COMID"])
         fit_map_to_gdf(m1, flood_gdf, fallback_gdf=station_gdf)
 
         add_map_legend(
@@ -1479,7 +1498,7 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
 
         if geom_fit is None:
             geom_fit = flood_gdf
-
+        add_gdf_to_map(m2, station_gdf, "#1E90FF", fill=True, weight=3, tooltip_fields=["Estacion", "COMID"])
         fit_map_to_gdf(m2, geom_fit, fallback_gdf=station_gdf)
 
         add_map_legend(
