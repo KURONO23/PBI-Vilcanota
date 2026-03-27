@@ -52,12 +52,12 @@ FORE_PATH = DATA_DIR / "fore_filtrado.parquet"
 
 SHAPE_BASE = BASE_DIR / "shape"
 SHP_ESTACIONES = SHAPE_BASE / "Estacion.shp"
-FILE_AGRICOLA = SHAPE_BASE / "Agricola.shp"
-FILE_POBLACION = SHAPE_BASE / "Poblacion.shp"
-FILE_VIAL = SHAPE_BASE / "Red Vial.shp"
-FILE_EDU = SHAPE_BASE / "Instituciones Educativas.shp"
-FILE_SALUD = SHAPE_BASE / "Puesto de Salud.shp"
-FILE_INUNDACION = SHAPE_BASE / "Inundacion_UTM19s.shp"
+
+ZONE_DIRS = {
+    "utm17s": SHAPE_BASE / "utm17s",
+    "utm18s": SHAPE_BASE / "utm18s",
+    "utm19s": SHAPE_BASE / "utm19s",
+}
 
 AOI_LON = -72.06
 AOI_LAT = -13.3364
@@ -65,7 +65,7 @@ AOI_ZOOM = 13
 CRS_WGS = 4326
 CRS_METRICO = 32719
 
-REF_YEAR = 2025  # 1999-09-01 a 2000-08-31
+REF_YEAR = 1999  # año de referencia para superponer septiembre-agosto
 
 
 # ============================================================
@@ -281,6 +281,77 @@ def metric_crs_for_gdf(gdf: Optional[gpd.GeoDataFrame], fallback_epsg: int = CRS
 
 
 
+def normalize_zone_value(zona_val) -> Optional[str]:
+    if zona_val is None or pd.isna(zona_val):
+        return None
+    s = str(zona_val).strip().lower().replace(" ", "")
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if digits not in {"17", "18", "19"}:
+        return None
+    return f"utm{digits}s"
+
+
+def zone_folder_from_lon(lon: float) -> Optional[str]:
+    if lon is None or pd.isna(lon):
+        return None
+    zone = int((float(lon) + 180) // 6) + 1
+    if zone in [17, 18, 19]:
+        return f"utm{zone}s"
+    return None
+
+
+def zone_folder_from_gdf(gdf: Optional[gpd.GeoDataFrame]) -> Optional[str]:
+    if gdf is None or len(gdf) == 0:
+        return None
+
+    gdf = coerce_crs_safely(gdf)
+
+    if "ZONA_UTM" in gdf.columns:
+        vals = gdf["ZONA_UTM"].dropna().astype(str).tolist()
+        if vals:
+            zone_folder = normalize_zone_value(vals[0])
+            if zone_folder is not None:
+                return zone_folder
+
+    try:
+        g_wgs = gdf.to_crs(4326) if (gdf.crs and gdf.crs.to_epsg() != 4326) else gdf
+        c = g_wgs.unary_union.centroid
+        return zone_folder_from_lon(c.x)
+    except Exception:
+        return None
+
+
+def zone_dir_from_key(zone_key: str) -> Path:
+    zone_key = normalize_zone_value(zone_key)
+    if zone_key is None or zone_key not in ZONE_DIRS:
+        raise ValueError(f"Zona UTM no válida: {zone_key}")
+    return ZONE_DIRS[zone_key]
+
+
+def inundacion_filename_for_zone(zone_key: str) -> str:
+    zone_key = normalize_zone_value(zone_key)
+    if zone_key is None:
+        raise ValueError("No se pudo resolver la zona UTM para el shape de inundación.")
+    suffix = zone_key.replace("utm", "UTM")
+    return f"Inundacion_{suffix}.shp"
+
+
+def zone_folder_for_comid(estaciones_gdf: gpd.GeoDataFrame, comid_sel: float) -> Optional[str]:
+    if estaciones_gdf is None or len(estaciones_gdf) == 0 or pd.isna(comid_sel):
+        return None
+
+    sub = estaciones_gdf[pd.to_numeric(estaciones_gdf["COMID"], errors="coerce") == float(comid_sel)].copy()
+    if len(sub) == 0:
+        return None
+
+    if "ZONA_FOLDER" in sub.columns:
+        zf = sub["ZONA_FOLDER"].dropna().astype(str).tolist()
+        if zf:
+            return zf[0]
+
+    return zone_folder_from_gdf(sub)
+
+
 def guess_peru_utm(gdf: gpd.GeoDataFrame, zones=range(17, 22)):
     best_gdf = None
     best_epsg = None
@@ -382,18 +453,9 @@ def hydro_year_start(d: pd.Timestamp) -> pd.Timestamp:
 
 def map_to_ref_dates(dates: pd.Series, ref_year: int = REF_YEAR) -> pd.Series:
     out = []
-    for d in pd.to_datetime(dates, errors="coerce"):
-        if pd.isna(d):
-            out.append(pd.NaT)
-            continue
-
+    for d in pd.to_datetime(dates):
         yy = ref_year if d.month >= 9 else ref_year + 1
-
-        try:
-            out.append(pd.Timestamp(year=yy, month=d.month, day=d.day))
-        except Exception:
-            out.append(pd.NaT)
-
+        out.append(pd.Timestamp(year=yy, month=d.month, day=d.day))
     return pd.Series(out, index=dates.index)
 
 
@@ -842,30 +904,16 @@ def nivel_from_q(q: float):
     return "BAJO", "#2e7d32"
 
 
-def flood_geom_from_qd(flood_index: gpd.GeoDataFrame, q: float, distrito: str, comid_sel: float):
-    if flood_index is None or len(flood_index) == 0:
+def flood_geom_from_qd(flood_index: gpd.GeoDataFrame, q: float, distrito: str):
+    if flood_index is None or len(flood_index) == 0 or pd.isna(q) or not distrito:
         return None
 
-    if pd.isna(q) or pd.isna(comid_sel) or not distrito:
-        return None
-
-    sub = flood_index[
-        (pd.to_numeric(flood_index["COMID"], errors="coerce") == float(comid_sel)) &
-        (flood_index["Distrito"].astype(str).str.strip() == str(distrito).strip())
-    ].copy()
-
+    sub = flood_index[flood_index["Distrito"] == distrito].copy()
     if len(sub) == 0:
         return None
 
-    sub["Caudal"] = pd.to_numeric(sub["Caudal"], errors="coerce")
-    sub = sub.dropna(subset=["Caudal"])
-
-    if len(sub) == 0:
-        return None
-
-    sub["dist_q"] = (sub["Caudal"] - float(q)).abs()
+    sub["dist_q"] = (sub["Caudal"] - q).abs()
     sub = sub.sort_values("dist_q")
-
     return sub.iloc[[0]].drop(columns=["dist_q"])
 
 
@@ -933,26 +981,20 @@ def make_hist_chart(h: pd.DataFrame):
     ini_hid = hydro_year_start(ult)
 
     clima = h.copy()
-    clima = clima.dropna(subset=["fecha", "qr_hist"]).copy()
     clima["mmdd"] = clima["fecha"].dt.strftime("%m-%d")
     clim = clima.groupby("mmdd", as_index=False)["qr_hist"].mean()
 
     def mmdd_to_refdate(mmdd: str):
-        try:
-            mm = int(mmdd[:2])
-            dd = int(mmdd[3:5])
-            yy = REF_YEAR if mm >= 9 else REF_YEAR + 1
-            return pd.Timestamp(year=yy, month=mm, day=dd)
-        except Exception:
-            return pd.NaT
+        mm = int(mmdd[:2])
+        dd = int(mmdd[3:5])
+        yy = REF_YEAR if mm >= 9 else REF_YEAR + 1
+        return pd.Timestamp(year=yy, month=mm, day=dd)
 
     clim["fecha_ref"] = clim["mmdd"].apply(mmdd_to_refdate)
-    clim = clim.dropna(subset=["fecha_ref"]).sort_values("fecha_ref")
+    clim = clim.sort_values("fecha_ref")
 
     curr = h[h["fecha"] >= ini_hid].copy()
-    curr = curr.dropna(subset=["fecha", "qr_hist"]).copy()
     curr["fecha_ref"] = map_to_ref_dates(curr["fecha"], ref_year=REF_YEAR)
-    curr = curr.dropna(subset=["fecha_ref"]).sort_values("fecha_ref")
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -1067,6 +1109,8 @@ with st.sidebar:
     st.markdown("### Rutas")
     st.caption(f"Base: {BASE_DIR}")
     st.caption(f"Shapes: {SHAPE_BASE}")
+    if "comid_sel" in st.session_state:
+        st.caption(f"Zona activa: {zone_folder_for_comid(estaciones_validas, float(st.session_state.comid_sel)) if 'estaciones_validas' in locals() else '(pendiente)'}")
 
 
 # ============================================================
@@ -1075,8 +1119,6 @@ with st.sidebar:
 try:
     hist, fore, comids = load_parquet_data()
     estaciones = load_estaciones()
-    base_layers = load_base_layers()
-    flood_index = load_flood_index()
 except Exception as e:
     st.error(f"Error cargando la aplicación: {e}")
     st.stop()
@@ -1093,9 +1135,26 @@ if estaciones_validas.empty:
 if "comid_sel" not in st.session_state:
     st.session_state.comid_sel = float(estaciones_validas["COMID"].astype(float).iloc[0])
 
+if "select_estacion_comid" in st.session_state:
+    try:
+        st.session_state.comid_sel = float(st.session_state["select_estacion_comid"])
+    except Exception:
+        pass
+
 for key in ["dist_now", "dist_d1", "dist_d2", "dist_d3"]:
     if key not in st.session_state:
         st.session_state[key] = None
+
+zone_key_sel = zone_folder_for_comid(estaciones_validas, float(st.session_state.comid_sel))
+if zone_key_sel is None:
+    zone_key_sel = "utm19s"
+
+try:
+    base_layers = load_base_layers(zone_key_sel)
+    flood_index = load_flood_index(zone_key_sel)
+except Exception as e:
+    st.error(f"Error cargando shapes para la zona {zone_key_sel}: {e}")
+    st.stop()
 
 
 # ============================================================
@@ -1116,7 +1175,7 @@ with tab_pron:
     with col_left:
         opciones = estaciones_validas["COMID"].astype(float).tolist()
         etiquetas = {
-            float(row["COMID"]): f"{row['Estacion']} | COMID {row['COMID']}"
+            float(row["COMID"]): f"{row['Estacion']} | COMID {row['COMID']} | {row.get('ZONA_FOLDER', '')}"
             for _, row in estaciones_validas.iterrows()
         }
 
@@ -1192,7 +1251,7 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
                 )
                 st.session_state[f"dist_{panel_id}"] = distrito_sel
             else:
-                st.warning("No se detectaron distritos para el COMID seleccionado en el shape de inundación.")
+                st.warning(f"No se detectaron distritos para el COMID seleccionado en la zona {base_layers.get('zone_key', '')}.")
                 distrito_sel = None
 
     flood_gdf = flood_geom_from_qd(flood_index, q_val, distrito_sel, float(st.session_state.comid_sel))
