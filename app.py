@@ -813,15 +813,18 @@ def load_base_layers(zone_key: str):
 
 
 @st.cache_data(show_spinner=True)
-def load_flood_index():
-    if not FILE_INUNDACION.exists():
+def load_flood_index(zone_key: str):
+    zone_dir = zone_dir_from_key(zone_key)
+    file_inundacion = zone_dir / inundacion_filename_for_zone(zone_key)
+
+    if not file_inundacion.exists():
         return gpd.GeoDataFrame(
             columns=["Distrito", "Caudal", "COMID", "ZONA_UTM", "geometry"],
             geometry="geometry",
             crs="EPSG:4326"
         )
 
-    g = gpd.read_file(str(FILE_INUNDACION))
+    g = gpd.read_file(str(file_inundacion))
     g = coerce_crs_safely(g)
     g = to_wgs(g)
 
@@ -850,7 +853,7 @@ def load_flood_index():
     tmp["COMID"] = pd.to_numeric(tmp["COMID"], errors="coerce")
 
     if "ZONA_UTM" not in tmp.columns:
-        tmp["ZONA_UTM"] = None
+        tmp["ZONA_UTM"] = zone_key.replace("utm", "").replace("s", "")
 
     tmp = tmp.dropna(subset=["Distrito", "Caudal", "COMID", "geometry"])
     tmp = gpd.GeoDataFrame(tmp, geometry="geometry", crs="EPSG:4326")
