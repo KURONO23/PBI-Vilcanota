@@ -451,6 +451,7 @@ def hydro_year_start(d: pd.Timestamp) -> pd.Timestamp:
     return pd.Timestamp(year=year if d.month >= 9 else year - 1, month=9, day=1)
 
 
+
 def map_to_ref_dates(dates: pd.Series, ref_year: int = REF_YEAR) -> pd.Series:
     out = []
     for d in pd.to_datetime(dates, errors="coerce"):
@@ -466,7 +467,6 @@ def map_to_ref_dates(dates: pd.Series, ref_year: int = REF_YEAR) -> pd.Series:
             out.append(pd.NaT)
 
     return pd.Series(out, index=dates.index)
-
 
 def safe_key_piece(x):
     if x is None or pd.isna(x):
@@ -524,6 +524,7 @@ def make_folium_map(tiles="OpenStreetMap"):
     )
 
 
+
 def add_gdf_to_map(
     m: folium.Map,
     gdf: Optional[gpd.GeoDataFrame],
@@ -536,6 +537,39 @@ def add_gdf_to_map(
         return
 
     gdf = to_wgs(gdf)
+    geom_types = set(gdf.geometry.geom_type.dropna().astype(str).tolist())
+
+    if geom_types.issubset({"Point", "MultiPoint"}):
+        fields_ok = [c for c in (tooltip_fields or []) if c in gdf.columns]
+
+        for _, row in gdf.iterrows():
+            geom = row.geometry
+            if geom is None or geom.is_empty:
+                continue
+
+            pts = [geom] if geom.geom_type == "Point" else list(geom.geoms)
+            tt = None
+            if fields_ok:
+                tt = "<br>".join([f"<b>{f}</b>: {row[f]}" for f in fields_ok])
+
+            for pt in pts:
+                folium.CircleMarker(
+                    location=[pt.y, pt.x],
+                    radius=7,
+                    color=color,
+                    weight=2,
+                    fill=True,
+                    fill_color=color,
+                    fill_opacity=1.0,
+                    tooltip=tt,
+                ).add_to(m)
+        return
+
+    tooltip = None
+    if tooltip_fields:
+        fields_ok = [c for c in tooltip_fields if c in gdf.columns]
+        if fields_ok:
+            tooltip = folium.GeoJsonTooltip(fields=fields_ok)
 
     def style_fn(_):
         return {
@@ -545,18 +579,11 @@ def add_gdf_to_map(
             "fillOpacity": 0.55 if fill else 0.0,
         }
 
-    tooltip = None
-    if tooltip_fields:
-        fields_ok = [c for c in tooltip_fields if c in gdf.columns]
-        if fields_ok:
-            tooltip = folium.GeoJsonTooltip(fields=fields_ok)
-
     folium.GeoJson(
         data=gdf.__geo_interface__,
         style_function=style_fn,
         tooltip=tooltip
     ).add_to(m)
-
 
 def add_map_legend(m: folium.Map, title: str, items: list, position: str = "topright"):
     pos_map = {
@@ -765,6 +792,7 @@ def load_parquet_data():
     return hist, fore, comids
 
 
+
 @st.cache_data(show_spinner=True)
 def load_estaciones():
     if not SHP_ESTACIONES.exists():
@@ -783,16 +811,33 @@ def load_estaciones():
     if "Estacion" not in gdf.columns:
         gdf["Estacion"] = gdf["COMID"].astype(str)
 
+    col_zona = find_col(gdf.columns, ["ZONA_UTM", "zona_utm", "zona", "utm"])
+    if col_zona is not None:
+        gdf["ZONA_UTM"] = gdf[col_zona].astype(str).str.strip()
+        gdf["ZONA_FOLDER"] = gdf["ZONA_UTM"].apply(normalize_zone_value)
+    else:
+        gdf["ZONA_UTM"] = None
+        gdf["ZONA_FOLDER"] = gdf.geometry.x.apply(zone_folder_from_lon)
+
+    gdf["ZONA_FOLDER"] = gdf["ZONA_FOLDER"].fillna("utm19s")
     return gdf
 
 
 @st.cache_data(show_spinner=True)
-def load_base_layers():
-    agri = safe_read_gdf(FILE_AGRICOLA)
-    pop = safe_read_gdf(FILE_POBLACION)
-    vial = safe_read_gdf(FILE_VIAL)
-    edu = safe_read_gdf(FILE_EDU)
-    salud = safe_read_gdf(FILE_SALUD)
+def load_base_layers(zone_key: str):
+    zone_dir = zone_dir_from_key(zone_key)
+
+    file_agricola = zone_dir / "Agricola.shp"
+    file_poblacion = zone_dir / "Poblacion.shp"
+    file_vial = zone_dir / "Red Vial.shp"
+    file_edu = zone_dir / "Instituciones Educativas.shp"
+    file_salud = zone_dir / "Puesto de Salud.shp"
+
+    agri = safe_read_gdf(file_agricola)
+    pop = safe_read_gdf(file_poblacion)
+    vial = safe_read_gdf(file_vial)
+    edu = safe_read_gdf(file_edu)
+    salud = safe_read_gdf(file_salud)
 
     if pop is not None:
         colp = find_col(pop.columns, [
@@ -809,19 +854,23 @@ def load_base_layers():
         "vial_wgs": vial,
         "edu_wgs": edu,
         "salud_wgs": salud,
+        "zone_key": zone_key,
     }
 
 
 @st.cache_data(show_spinner=True)
-def load_flood_index():
-    if not FILE_INUNDACION.exists():
+def load_flood_index(zone_key: str):
+    zone_dir = zone_dir_from_key(zone_key)
+    file_inundacion = zone_dir / inundacion_filename_for_zone(zone_key)
+
+    if not file_inundacion.exists():
         return gpd.GeoDataFrame(
             columns=["Distrito", "Caudal", "COMID", "ZONA_UTM", "geometry"],
             geometry="geometry",
             crs="EPSG:4326"
         )
 
-    g = gpd.read_file(str(FILE_INUNDACION))
+    g = gpd.read_file(str(file_inundacion))
     g = coerce_crs_safely(g)
     g = to_wgs(g)
 
@@ -850,12 +899,11 @@ def load_flood_index():
     tmp["COMID"] = pd.to_numeric(tmp["COMID"], errors="coerce")
 
     if "ZONA_UTM" not in tmp.columns:
-        tmp["ZONA_UTM"] = None
+        tmp["ZONA_UTM"] = zone_key.replace("utm", "").replace("s", "")
 
     tmp = tmp.dropna(subset=["Distrito", "Caudal", "COMID", "geometry"])
     tmp = gpd.GeoDataFrame(tmp, geometry="geometry", crs="EPSG:4326")
     return tmp
-
 
 # ============================================================
 # LÓGICA DE NEGOCIO
@@ -913,18 +961,31 @@ def nivel_from_q(q: float):
     return "BAJO", "#2e7d32"
 
 
-def flood_geom_from_qd(flood_index: gpd.GeoDataFrame, q: float, distrito: str):
-    if flood_index is None or len(flood_index) == 0 or pd.isna(q) or not distrito:
+
+def flood_geom_from_qd(flood_index: gpd.GeoDataFrame, q: float, distrito: str, comid_sel: float):
+    if flood_index is None or len(flood_index) == 0:
         return None
 
-    sub = flood_index[flood_index["Distrito"] == distrito].copy()
+    if pd.isna(q) or pd.isna(comid_sel) or not distrito:
+        return None
+
+    sub = flood_index[
+        (pd.to_numeric(flood_index["COMID"], errors="coerce") == float(comid_sel)) &
+        (flood_index["Distrito"].astype(str).str.strip() == str(distrito).strip())
+    ].copy()
+
     if len(sub) == 0:
         return None
 
-    sub["dist_q"] = (sub["Caudal"] - q).abs()
+    sub["Caudal"] = pd.to_numeric(sub["Caudal"], errors="coerce")
+    sub = sub.dropna(subset=["Caudal"])
+
+    if len(sub) == 0:
+        return None
+
+    sub["dist_q"] = (sub["Caudal"] - float(q)).abs()
     sub = sub.sort_values("dist_q")
     return sub.iloc[[0]].drop(columns=["dist_q"])
-
 
 def inters_polys(base_wgs: Optional[gpd.GeoDataFrame], flood_wgs: Optional[gpd.GeoDataFrame], target_epsg: Optional[int] = None):
     if base_wgs is None or flood_wgs is None or len(base_wgs) == 0 or len(flood_wgs) == 0:
@@ -985,25 +1046,32 @@ def make_exp_df(pop_af, edu_af, salud_af, vial_af, agri_af):
 # ============================================================
 # GRÁFICOS
 # ============================================================
+
 def make_hist_chart(h: pd.DataFrame):
     ult = h["fecha"].max()
     ini_hid = hydro_year_start(ult)
 
     clima = h.copy()
+    clima = clima.dropna(subset=["fecha", "qr_hist"]).copy()
     clima["mmdd"] = clima["fecha"].dt.strftime("%m-%d")
     clim = clima.groupby("mmdd", as_index=False)["qr_hist"].mean()
 
     def mmdd_to_refdate(mmdd: str):
-        mm = int(mmdd[:2])
-        dd = int(mmdd[3:5])
-        yy = REF_YEAR if mm >= 9 else REF_YEAR + 1
-        return pd.Timestamp(year=yy, month=mm, day=dd)
+        try:
+            mm = int(mmdd[:2])
+            dd = int(mmdd[3:5])
+            yy = REF_YEAR if mm >= 9 else REF_YEAR + 1
+            return pd.Timestamp(year=yy, month=mm, day=dd)
+        except Exception:
+            return pd.NaT
 
     clim["fecha_ref"] = clim["mmdd"].apply(mmdd_to_refdate)
-    clim = clim.sort_values("fecha_ref")
+    clim = clim.dropna(subset=["fecha_ref"]).sort_values("fecha_ref")
 
     curr = h[h["fecha"] >= ini_hid].copy()
+    curr = curr.dropna(subset=["fecha", "qr_hist"]).copy()
     curr["fecha_ref"] = map_to_ref_dates(curr["fecha"], ref_year=REF_YEAR)
+    curr = curr.dropna(subset=["fecha_ref"]).sort_values("fecha_ref")
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -1030,7 +1098,6 @@ def make_hist_chart(h: pd.DataFrame):
         legend=dict(orientation="h")
     )
     return fig
-
 
 def make_fore_chart(h: pd.DataFrame, f: pd.DataFrame):
     t_hist = h.tail(14)[["fecha", "qr_hist"]].copy()
