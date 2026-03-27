@@ -935,7 +935,7 @@ def load_base_layers(zone_key: str):
     file_agricola = zone_dir / "Agricola.shp"
     file_poblacion = zone_dir / "Poblacion.shp"
     file_vial = zone_dir / "Red Vial.shp"
-    file_edu = zone_dir / "Instituciones Educativas.shp"
+    file_edu = zone_dir / "Instituciones educativas.shp"
     file_salud = zone_dir / "Puesto de Salud.shp"
 
     agri = safe_read_gdf(file_agricola)
