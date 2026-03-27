@@ -535,7 +535,6 @@ def fit_map_to_gdf(
     m.location = [AOI_LAT, AOI_LON]
     m.zoom_start = AOI_ZOOM
 
-
 def make_folium_map(tiles="OpenStreetMap"):
     return folium.Map(
         location=[AOI_LAT, AOI_LON],
