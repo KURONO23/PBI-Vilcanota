@@ -546,11 +546,22 @@ def make_station_map(est_sel: gpd.GeoDataFrame):
     est_sel = to_wgs(est_sel)
 
     geom = est_sel.geometry.iloc[0]
-    if geom.geom_type == "Point":
-        lat, lon = geom.y, geom.x
+
+    if geom is None or geom.is_empty:
+        lat, lon = AOI_LAT, AOI_LON
     else:
-        c = est_sel.unary_union.centroid
-        lat, lon = c.y, c.x
+        if geom.geom_type == "Point":
+            lon = float(geom.x)
+            lat = float(geom.y)
+        else:
+            c = est_sel.unary_union.centroid
+            lon = float(c.x)
+            lat = float(c.y)
+
+    # Corrección automática si vienen invertidas
+    # Caso típico malo: lat ≈ -72 y lon ≈ -13
+    if (lat < -40 or lat > 20) and (-30 <= lon <= 30):
+        lat, lon = lon, lat
 
     m = folium.Map(
         location=[lat, lon],
@@ -558,6 +569,20 @@ def make_station_map(est_sel: gpd.GeoDataFrame):
         tiles="OpenStreetMap",
         control_scale=True
     )
+
+    # Punto azul
+    folium.CircleMarker(
+        location=[lat, lon],
+        radius=7,
+        color="#1E90FF",
+        weight=2,
+        fill=True,
+        fill_color="#1E90FF",
+        fill_opacity=1.0,
+        tooltip=f"{est_sel.iloc[0]['Estacion']} | COMID {est_sel.iloc[0]['COMID']}"
+    ).add_to(m)
+
+    return m
 
     add_gdf_to_map(
         m,
