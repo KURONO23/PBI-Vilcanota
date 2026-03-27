@@ -382,9 +382,18 @@ def hydro_year_start(d: pd.Timestamp) -> pd.Timestamp:
 
 def map_to_ref_dates(dates: pd.Series, ref_year: int = REF_YEAR) -> pd.Series:
     out = []
-    for d in pd.to_datetime(dates):
+    for d in pd.to_datetime(dates, errors="coerce"):
+        if pd.isna(d):
+            out.append(pd.NaT)
+            continue
+
         yy = ref_year if d.month >= 9 else ref_year + 1
-        out.append(pd.Timestamp(year=yy, month=d.month, day=d.day))
+
+        try:
+            out.append(pd.Timestamp(year=yy, month=d.month, day=d.day))
+        except Exception:
+            out.append(pd.NaT)
+
     return pd.Series(out, index=dates.index)
 
 
@@ -910,20 +919,26 @@ def make_hist_chart(h: pd.DataFrame):
     ini_hid = hydro_year_start(ult)
 
     clima = h.copy()
+    clima = clima.dropna(subset=["fecha", "qr_hist"]).copy()
     clima["mmdd"] = clima["fecha"].dt.strftime("%m-%d")
     clim = clima.groupby("mmdd", as_index=False)["qr_hist"].mean()
 
     def mmdd_to_refdate(mmdd: str):
-        mm = int(mmdd[:2])
-        dd = int(mmdd[3:5])
-        yy = REF_YEAR if mm >= 9 else REF_YEAR + 1
-        return pd.Timestamp(year=yy, month=mm, day=dd)
+        try:
+            mm = int(mmdd[:2])
+            dd = int(mmdd[3:5])
+            yy = REF_YEAR if mm >= 9 else REF_YEAR + 1
+            return pd.Timestamp(year=yy, month=mm, day=dd)
+        except Exception:
+            return pd.NaT
 
     clim["fecha_ref"] = clim["mmdd"].apply(mmdd_to_refdate)
-    clim = clim.sort_values("fecha_ref")
+    clim = clim.dropna(subset=["fecha_ref"]).sort_values("fecha_ref")
 
     curr = h[h["fecha"] >= ini_hid].copy()
+    curr = curr.dropna(subset=["fecha", "qr_hist"]).copy()
     curr["fecha_ref"] = map_to_ref_dates(curr["fecha"], ref_year=REF_YEAR)
+    curr = curr.dropna(subset=["fecha_ref"]).sort_values("fecha_ref")
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
