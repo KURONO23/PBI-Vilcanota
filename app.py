@@ -1274,48 +1274,48 @@ with tab_pron:
     col_left, col_right = st.columns([1, 2])
 
     with col_left:
-    opciones = estaciones_validas["COMID"].astype(float).tolist()
-    etiquetas = {
-        float(row["COMID"]): f"{row['Estacion']} | COMID {row['COMID']}"
-        for _, row in estaciones_validas.iterrows()
-    }
+        opciones = estaciones_validas["COMID"].astype(float).tolist()
+        etiquetas = {
+            float(row["COMID"]): f"{row['Estacion']} | COMID {row['COMID']}"
+            for _, row in estaciones_validas.iterrows()
+        }
 
-    comid_prev = st.session_state.get("comid_sel")
-    st.session_state.comid_sel = st.selectbox(
-        "Estación / COMID",
-        options=opciones,
-        index=opciones.index(st.session_state.comid_sel) if st.session_state.comid_sel in opciones else 0,
-        format_func=lambda x: etiquetas.get(float(x), str(x)),
-        key="select_estacion_comid"
-    )
+        comid_prev = st.session_state.get("comid_sel")
+        st.session_state.comid_sel = st.selectbox(
+            "Estación / COMID",
+            options=opciones,
+            index=opciones.index(st.session_state.comid_sel) if st.session_state.comid_sel in opciones else 0,
+            format_func=lambda x: etiquetas.get(float(x), str(x)),
+            key="select_estacion_comid"
+        )
 
-    if comid_prev != st.session_state.comid_sel:
-        for _k in ["dist_now", "dist_d1", "dist_d2", "dist_d3"]:
-            st.session_state[_k] = None
-        st.rerun()
+        if comid_prev != st.session_state.comid_sel:
+            for _k in ["dist_now", "dist_d1", "dist_d2", "dist_d3"]:
+                st.session_state[_k] = None
+            st.rerun()
 
-    est_sel = estaciones_validas[
-        estaciones_validas["COMID"].astype(float) == float(st.session_state.comid_sel)
-    ].copy()
+        est_sel = estaciones_validas[
+            estaciones_validas["COMID"].astype(float) == float(st.session_state.comid_sel)
+        ].copy()
 
-    m_est = make_folium_map(tiles="OpenStreetMap")
-    add_gdf_to_map(
-        m_est,
-        est_sel,
-        "#1E90FF",
-        fill=True,
-        weight=3,
-        tooltip_fields=["Estacion", "COMID"]
-    )
-    fit_map_to_gdf(m_est, est_sel)
+        m_est = make_folium_map(tiles="OpenStreetMap")
+        add_gdf_to_map(
+            m_est,
+            est_sel,
+            "#1E90FF",
+            fill=True,
+            weight=3,
+            tooltip_fields=["Estacion", "COMID"]
+        )
+        fit_map_to_gdf(m_est, est_sel)
 
-    st_folium(
-        m_est,
-        width=None,
-        height=520,
-        returned_objects=[],
-        key="map_pron_estaciones"
-    )
+        st_folium(
+            m_est,
+            width=None,
+            height=520,
+            returned_objects=[],
+            key="map_pron_estaciones"
+        )
 
     with col_right:
         h, f = get_station_series(hist, fore, float(st.session_state.comid_sel))
@@ -1327,7 +1327,6 @@ with tab_pron:
             st.plotly_chart(make_fore_chart(h, f), use_container_width=True)
             st.plotly_chart(make_var_chart(h, f), use_container_width=True)
             st.caption("Climatología: promedio por día del año. Año hidrológico: septiembre a agosto.")
-
 
 # ============================================================
 # FUNCIÓN REUTILIZABLE PBI
