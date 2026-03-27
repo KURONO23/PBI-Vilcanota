@@ -542,7 +542,33 @@ def make_folium_map(tiles="OpenStreetMap"):
         tiles=tiles,
         control_scale=True
     )
+def make_station_map(est_sel: gpd.GeoDataFrame):
+    est_sel = to_wgs(est_sel)
 
+    geom = est_sel.geometry.iloc[0]
+    if geom.geom_type == "Point":
+        lat, lon = geom.y, geom.x
+    else:
+        c = est_sel.unary_union.centroid
+        lat, lon = c.y, c.x
+
+    m = folium.Map(
+        location=[lat, lon],
+        zoom_start=13,
+        tiles="OpenStreetMap",
+        control_scale=True
+    )
+
+    add_gdf_to_map(
+        m,
+        est_sel,
+        "#1E90FF",
+        fill=True,
+        weight=3,
+        tooltip_fields=["Estacion", "COMID"]
+    )
+
+    return m
 
 
 def add_gdf_to_map(
@@ -1298,23 +1324,14 @@ with tab_pron:
             estaciones_validas["COMID"].astype(float) == float(st.session_state.comid_sel)
         ].copy()
 
-        m_est = make_folium_map(tiles="OpenStreetMap")
-        add_gdf_to_map(
-            m_est,
-            est_sel,
-            "#1E90FF",
-            fill=True,
-            weight=3,
-            tooltip_fields=["Estacion", "COMID"]
-        )
-        fit_map_to_gdf(m_est, est_sel)
+        m_est = make_station_map(est_sel)
 
         st_folium(
             m_est,
             width=None,
             height=520,
             returned_objects=[],
-            key="map_pron_estaciones"
+            key=f"map_pron_estaciones_{int(float(st.session_state.comid_sel))}"
         )
 
     with col_right:
