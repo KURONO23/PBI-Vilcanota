@@ -236,13 +236,17 @@ def bounds_reasonable(bounds, max_span_deg=8) -> bool:
 def epsg_from_zona_utm(zona_val) -> Optional[int]:
     if zona_val is None or pd.isna(zona_val):
         return None
+
     s = str(zona_val).strip().upper().replace(" ", "")
-    digits = "".join(ch for ch in s if ch.isdigit())
-    if not digits:
-        return None
-    z = int(digits)
-    if 17 <= z <= 22:
-        return 32700 + z
+    s = s.replace("UTM", "").replace("S", "")
+
+    try:
+        z = int(float(s))
+        if 17 <= z <= 22:
+            return 32700 + z
+    except Exception:
+        pass
+
     return None
 
 
@@ -284,11 +288,18 @@ def metric_crs_for_gdf(gdf: Optional[gpd.GeoDataFrame], fallback_epsg: int = CRS
 def normalize_zone_value(zona_val) -> Optional[str]:
     if zona_val is None or pd.isna(zona_val):
         return None
+
     s = str(zona_val).strip().lower().replace(" ", "")
-    digits = "".join(ch for ch in s if ch.isdigit())
-    if digits not in {"17", "18", "19"}:
-        return None
-    return f"utm{digits}s"
+    s = s.replace("utm", "").replace("s", "")
+
+    try:
+        z = int(float(s))
+        if z in (17, 18, 19):
+            return f"utm{z}s"
+    except Exception:
+        pass
+
+    return None
 
 
 def zone_folder_from_lon(lon: float) -> Optional[str]:
