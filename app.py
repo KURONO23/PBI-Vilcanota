@@ -842,16 +842,30 @@ def nivel_from_q(q: float):
     return "BAJO", "#2e7d32"
 
 
-def flood_geom_from_qd(flood_index: gpd.GeoDataFrame, q: float, distrito: str):
-    if flood_index is None or len(flood_index) == 0 or pd.isna(q) or not distrito:
+def flood_geom_from_qd(flood_index: gpd.GeoDataFrame, q: float, distrito: str, comid_sel: float):
+    if flood_index is None or len(flood_index) == 0:
         return None
 
-    sub = flood_index[flood_index["Distrito"] == distrito].copy()
+    if pd.isna(q) or pd.isna(comid_sel) or not distrito:
+        return None
+
+    sub = flood_index[
+        (pd.to_numeric(flood_index["COMID"], errors="coerce") == float(comid_sel)) &
+        (flood_index["Distrito"].astype(str).str.strip() == str(distrito).strip())
+    ].copy()
+
     if len(sub) == 0:
         return None
 
-    sub["dist_q"] = (sub["Caudal"] - q).abs()
+    sub["Caudal"] = pd.to_numeric(sub["Caudal"], errors="coerce")
+    sub = sub.dropna(subset=["Caudal"])
+
+    if len(sub) == 0:
+        return None
+
+    sub["dist_q"] = (sub["Caudal"] - float(q)).abs()
     sub = sub.sort_values("dist_q")
+
     return sub.iloc[[0]].drop(columns=["dist_q"])
 
 
