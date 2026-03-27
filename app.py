@@ -57,6 +57,7 @@ FILE_POBLACION = SHAPE_BASE / "Poblacion.shp"
 FILE_VIAL = SHAPE_BASE / "Red Vial.shp"
 FILE_EDU = SHAPE_BASE / "Instituciones Educativas.shp"
 FILE_SALUD = SHAPE_BASE / "Puesto de Salud.shp"
+FILE_INUNDACION = SHAPE_BASE / "Inundacion_UTM19s.shp"
 
 AOI_LON = -72.06
 AOI_LAT = -13.3364
@@ -64,7 +65,7 @@ AOI_ZOOM = 13
 CRS_WGS = 4326
 CRS_METRICO = 32719
 
-REF_YEAR = 1999  # 1999-09-01 a 2000-08-31
+REF_YEAR = 2025  # 1999-09-01 a 2000-08-31
 
 
 # ============================================================
@@ -232,6 +233,54 @@ def bounds_reasonable(bounds, max_span_deg=8) -> bool:
     return abs(xmax - xmin) < max_span_deg and abs(ymax - ymin) < max_span_deg
 
 
+def epsg_from_zona_utm(zona_val) -> Optional[int]:
+    if zona_val is None or pd.isna(zona_val):
+        return None
+    s = str(zona_val).strip().upper().replace(" ", "")
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if not digits:
+        return None
+    z = int(digits)
+    if 17 <= z <= 22:
+        return 32700 + z
+    return None
+
+
+def epsg_from_lon(lon: float) -> Optional[int]:
+    if lon is None or pd.isna(lon):
+        return None
+    zone = int((float(lon) + 180) // 6) + 1
+    if 17 <= zone <= 22:
+        return 32700 + zone
+    return None
+
+
+def metric_crs_for_gdf(gdf: Optional[gpd.GeoDataFrame], fallback_epsg: int = CRS_METRICO) -> int:
+    if gdf is None or len(gdf) == 0:
+        return fallback_epsg
+
+    gdf = coerce_crs_safely(gdf)
+
+    if "ZONA_UTM" in gdf.columns:
+        vals = gdf["ZONA_UTM"].dropna().astype(str).tolist()
+        if vals:
+            epsg = epsg_from_zona_utm(vals[0])
+            if epsg is not None:
+                return epsg
+
+    try:
+        g_wgs = gdf.to_crs(4326) if (gdf.crs and gdf.crs.to_epsg() != 4326) else gdf
+        c = g_wgs.unary_union.centroid
+        epsg = epsg_from_lon(c.x)
+        if epsg is not None:
+            return epsg
+    except Exception:
+        pass
+
+    return fallback_epsg
+
+
+
 def guess_peru_utm(gdf: gpd.GeoDataFrame, zones=range(17, 22)):
     best_gdf = None
     best_epsg = None
@@ -306,13 +355,14 @@ def to_wgs(gdf: Optional[gpd.GeoDataFrame]):
     return gdf
 
 
-def to_metric(gdf: Optional[gpd.GeoDataFrame]):
+def to_metric(gdf: Optional[gpd.GeoDataFrame], target_epsg: Optional[int] = None):
     if gdf is None or len(gdf) == 0:
         return gdf
     gdf = coerce_crs_safely(gdf)
-    epsg = gdf.crs.to_epsg() if gdf.crs else None
-    if epsg != CRS_METRICO:
-        gdf = gdf.to_crs(CRS_METRICO)
+    epsg_target = target_epsg if target_epsg is not None else metric_crs_for_gdf(gdf)
+    epsg_now = gdf.crs.to_epsg() if gdf.crs else None
+    if epsg_now != epsg_target:
+        gdf = gdf.to_crs(epsg_target)
     return gdf
 
 
@@ -679,64 +729,52 @@ def load_base_layers():
         "vial_wgs": vial,
         "edu_wgs": edu,
         "salud_wgs": salud,
-        "agri_utm": to_metric(agri) if agri is not None else None,
-        "pop_utm": to_metric(pop) if pop is not None else None,
-        "vial_utm": to_metric(vial) if vial is not None else None,
-        "edu_utm": to_metric(edu) if edu is not None else None,
-        "salud_utm": to_metric(salud) if salud is not None else None,
     }
 
 
 @st.cache_data(show_spinner=True)
 def load_flood_index():
-    if not SHAPE_BASE.exists():
-        return gpd.GeoDataFrame(columns=["Distrito", "Caudal", "geometry"], geometry="geometry", crs="EPSG:4326")
+    if not FILE_INUNDACION.exists():
+        return gpd.GeoDataFrame(
+            columns=["Distrito", "Caudal", "COMID", "ZONA_UTM", "geometry"],
+            geometry="geometry",
+            crs="EPSG:4326"
+        )
 
-    base_names = {
-        "estacion",
-        "agricola",
-        "poblacion",
-        "redvial",
-        "institucioneseducativas",
-        "puestodesalud"
+    g = gpd.read_file(str(FILE_INUNDACION))
+    g = coerce_crs_safely(g)
+    g = to_wgs(g)
+
+    col_dist = find_col(g.columns, ["Distrito", "DISTRITO", "Dist", "NOMBDIST", "NOM_DIST"])
+    col_q = find_col(g.columns, ["Caudal", "CAUDAL", "Q", "QMAX", "Qmax", "flow", "discharge"])
+    col_comid = find_col(g.columns, ["COMID", "comid"])
+    col_zona = find_col(g.columns, ["ZONA_UTM", "zona_utm", "zona", "utm"])
+
+    if col_dist is None or col_q is None or col_comid is None:
+        raise ValueError("El shape de inundación debe tener columnas COMID, Distrito y Caudal.")
+
+    keep_cols = [col_dist, col_q, col_comid, "geometry"]
+    rename_map = {
+        col_dist: "Distrito",
+        col_q: "Caudal",
+        col_comid: "COMID",
     }
 
-    parts = []
+    if col_zona is not None:
+        keep_cols.insert(3, col_zona)
+        rename_map[col_zona] = "ZONA_UTM"
 
-    for shp in SHAPE_BASE.glob("*.shp"):
-        stem = norm_name(shp.stem)
-        if stem in base_names:
-            continue
+    tmp = g[keep_cols].copy().rename(columns=rename_map)
+    tmp["Distrito"] = tmp["Distrito"].astype(str).str.strip()
+    tmp["Caudal"] = pd.to_numeric(tmp["Caudal"], errors="coerce")
+    tmp["COMID"] = pd.to_numeric(tmp["COMID"], errors="coerce")
 
-        try:
-            g = gpd.read_file(str(shp))
-            g = coerce_crs_safely(g)
-            g = to_wgs(g)
+    if "ZONA_UTM" not in tmp.columns:
+        tmp["ZONA_UTM"] = None
 
-            col_dist = find_col(g.columns, ["Distrito", "DISTRITO", "Dist", "NOMBDIST", "NOM_DIST"])
-            col_q = find_col(g.columns, ["Caudal", "CAUDAL", "Q", "QMAX", "Qmax", "flow", "discharge"])
-
-            if col_dist is None or col_q is None:
-                continue
-
-            tmp = g[[col_dist, col_q, "geometry"]].copy()
-            tmp.columns = ["Distrito", "Caudal", "geometry"]
-            tmp["Distrito"] = tmp["Distrito"].astype(str).str.strip()
-            tmp["Caudal"] = pd.to_numeric(tmp["Caudal"], errors="coerce")
-            tmp = tmp.dropna(subset=["Distrito", "Caudal", "geometry"])
-
-            if len(tmp) > 0:
-                parts.append(tmp)
-
-        except Exception:
-            continue
-
-    if not parts:
-        return gpd.GeoDataFrame(columns=["Distrito", "Caudal", "geometry"], geometry="geometry", crs="EPSG:4326")
-
-    out = pd.concat(parts, ignore_index=True)
-    out = gpd.GeoDataFrame(out, geometry="geometry", crs="EPSG:4326")
-    return out
+    tmp = tmp.dropna(subset=["Distrito", "Caudal", "COMID", "geometry"])
+    tmp = gpd.GeoDataFrame(tmp, geometry="geometry", crs="EPSG:4326")
+    return tmp
 
 
 # ============================================================
@@ -774,6 +812,15 @@ def q_gfs_day(hist_station: pd.DataFrame, fore_station: pd.DataFrame, nday: int)
     return float(daily.iloc[nday - 1]["qr_gfs"])
 
 
+def distritos_por_comid(flood_index: gpd.GeoDataFrame, comid_sel: float):
+    if flood_index is None or len(flood_index) == 0 or pd.isna(comid_sel):
+        return []
+    sub = flood_index[pd.to_numeric(flood_index["COMID"], errors="coerce") == float(comid_sel)].copy()
+    if len(sub) == 0:
+        return []
+    return sorted(sub["Distrito"].dropna().astype(str).unique().tolist())
+
+
 def nivel_from_q(q: float):
     if pd.isna(q):
         return "SIN DATO", "#94a3b8"
@@ -799,22 +846,24 @@ def flood_geom_from_qd(flood_index: gpd.GeoDataFrame, q: float, distrito: str):
     return sub.iloc[[0]].drop(columns=["dist_q"])
 
 
-def inters_polys(base_utm: Optional[gpd.GeoDataFrame], flood_wgs: Optional[gpd.GeoDataFrame]):
-    if base_utm is None or flood_wgs is None or len(base_utm) == 0 or len(flood_wgs) == 0:
+def inters_polys(base_wgs: Optional[gpd.GeoDataFrame], flood_wgs: Optional[gpd.GeoDataFrame], target_epsg: Optional[int] = None):
+    if base_wgs is None or flood_wgs is None or len(base_wgs) == 0 or len(flood_wgs) == 0:
         return None
 
-    flood_utm = to_metric(flood_wgs)
+    base_utm = to_metric(base_wgs, target_epsg=target_epsg)
+    flood_utm = to_metric(flood_wgs, target_epsg=target_epsg)
     try:
         return gpd.overlay(base_utm, flood_utm, how="intersection", keep_geom_type=False)
     except Exception:
         return None
 
 
-def vial_touch(vial_utm: Optional[gpd.GeoDataFrame], flood_wgs: Optional[gpd.GeoDataFrame]):
-    if vial_utm is None or flood_wgs is None or len(vial_utm) == 0 or len(flood_wgs) == 0:
+def vial_touch(vial_wgs: Optional[gpd.GeoDataFrame], flood_wgs: Optional[gpd.GeoDataFrame], target_epsg: Optional[int] = None):
+    if vial_wgs is None or flood_wgs is None or len(vial_wgs) == 0 or len(flood_wgs) == 0:
         return None
 
-    flood_utm = to_metric(flood_wgs)
+    vial_utm = to_metric(vial_wgs, target_epsg=target_epsg)
+    flood_utm = to_metric(flood_wgs, target_epsg=target_epsg)
     try:
         return gpd.clip(vial_utm, flood_utm)
     except Exception:
@@ -822,12 +871,14 @@ def vial_touch(vial_utm: Optional[gpd.GeoDataFrame], flood_wgs: Optional[gpd.Geo
 
 
 def compute_exposures(base_layers: dict, flood_wgs: Optional[gpd.GeoDataFrame]):
+    target_epsg = metric_crs_for_gdf(flood_wgs) if flood_wgs is not None and len(flood_wgs) else CRS_METRICO
+
     return {
-        "agri_af": inters_polys(base_layers["agri_utm"], flood_wgs),
-        "pop_af": inters_polys(base_layers["pop_utm"], flood_wgs),
-        "edu_af": inters_polys(base_layers["edu_utm"], flood_wgs),
-        "salud_af": inters_polys(base_layers["salud_utm"], flood_wgs),
-        "vial_af": vial_touch(base_layers["vial_utm"], flood_wgs),
+        "agri_af": inters_polys(base_layers["agri_wgs"], flood_wgs, target_epsg=target_epsg),
+        "pop_af": inters_polys(base_layers["pop_wgs"], flood_wgs, target_epsg=target_epsg),
+        "edu_af": inters_polys(base_layers["edu_wgs"], flood_wgs, target_epsg=target_epsg),
+        "salud_af": inters_polys(base_layers["salud_wgs"], flood_wgs, target_epsg=target_epsg),
+        "vial_af": vial_touch(base_layers["vial_wgs"], flood_wgs, target_epsg=target_epsg),
     }
 
 
@@ -1013,11 +1064,9 @@ if estaciones_validas.empty:
 if "comid_sel" not in st.session_state:
     st.session_state.comid_sel = float(estaciones_validas["COMID"].astype(float).iloc[0])
 
-distritos = sorted(flood_index["Distrito"].dropna().unique().tolist()) if len(flood_index) else []
-
 for key in ["dist_now", "dist_d1", "dist_d2", "dist_d3"]:
     if key not in st.session_state:
-        st.session_state[key] = distritos[0] if distritos else None
+        st.session_state[key] = None
 
 
 # ============================================================
@@ -1042,6 +1091,7 @@ with tab_pron:
             for _, row in estaciones_validas.iterrows()
         }
 
+        comid_prev = st.session_state.get("comid_sel")
         st.session_state.comid_sel = st.selectbox(
             "Estación / COMID",
             options=opciones,
@@ -1049,6 +1099,10 @@ with tab_pron:
             format_func=lambda x: etiquetas.get(float(x), str(x)),
             key="select_estacion_comid"
         )
+
+        if comid_prev != st.session_state.comid_sel:
+            for _k in ["dist_now", "dist_d1", "dist_d2", "dist_d3"]:
+                st.session_state[_k] = None
 
         est_sel = estaciones_validas[
             estaciones_validas["COMID"].astype(float) == float(st.session_state.comid_sel)
@@ -1090,6 +1144,7 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
 
     c_map1, c_map2, c_side = st.columns([1.2, 1.2, 0.7])
 
+    distritos = distritos_por_comid(flood_index, float(st.session_state.comid_sel))
     distrito_sel = st.session_state.get(f"dist_{panel_id}", distritos[0] if distritos else None)
 
     with c_side:
@@ -1108,10 +1163,10 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
                 )
                 st.session_state[f"dist_{panel_id}"] = distrito_sel
             else:
-                st.warning("No se detectaron distritos en los shapes de inundación.")
+                st.warning("No se detectaron distritos para el COMID seleccionado en el shape de inundación.")
                 distrito_sel = None
 
-    flood_gdf = flood_geom_from_qd(flood_index, q_val, distrito_sel)
+    flood_gdf = flood_geom_from_qd(flood_index, q_val, distrito_sel, float(st.session_state.comid_sel))
     exp = compute_exposures(base_layers, flood_gdf)
 
     q_key = safe_key_piece(round(q_val, 2) if pd.notna(q_val) else "na")
