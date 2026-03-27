@@ -1444,7 +1444,8 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
 
         m1 = make_folium_map(tiles="OpenStreetMap")
         add_gdf_to_map(m1, flood_gdf, "#1E90FF", fill=True, weight=3)
-        add_gdf_to_map(m1, station_gdf, "#1E90FF", fill=True, weight=3, tooltip_fields=["Estacion", "COMID"])
+
+        # SOLO zoom, NO dibujar estación
         fit_map_to_gdf(m1, flood_gdf, fallback_gdf=station_gdf)
 
         add_map_legend(
@@ -1474,12 +1475,12 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
         if exp["agri_af"] is not None and len(exp["agri_af"]):
             add_gdf_to_map(m2, exp["agri_af"], "#00B050", fill=True, weight=2)
             geom_fit = exp["agri_af"]
-
+    
         if exp["pop_af"] is not None and len(exp["pop_af"]):
             add_gdf_to_map(m2, exp["pop_af"], "#b71c1c", fill=True, weight=2, tooltip_fields=["__pob__"])
             if geom_fit is None:
                 geom_fit = exp["pop_af"]
-
+    
         if exp["edu_af"] is not None and len(exp["edu_af"]):
             add_gdf_to_map(m2, exp["edu_af"], "#0d47a1", fill=True, weight=2)
             if geom_fit is None:
@@ -1489,18 +1490,19 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
             add_gdf_to_map(m2, exp["salud_af"], "#c62828", fill=True, weight=2)
             if geom_fit is None:
                 geom_fit = exp["salud_af"]
-
+    
         if exp["vial_af"] is not None and len(exp["vial_af"]):
             add_gdf_to_map(m2, exp["vial_af"], "#FFFFFF", fill=False, weight=8)
             add_gdf_to_map(m2, exp["vial_af"], "#8E24AA", fill=False, weight=5)
             if geom_fit is None:
                 geom_fit = exp["vial_af"]
-
+    
         if geom_fit is None:
             geom_fit = flood_gdf
-        add_gdf_to_map(m2, station_gdf, "#1E90FF", fill=True, weight=3, tooltip_fields=["Estacion", "COMID"])
+    
+        # SOLO zoom, NO dibujar estación
         fit_map_to_gdf(m2, geom_fit, fallback_gdf=station_gdf)
-
+    
         add_map_legend(
             m2,
             "Capas",
@@ -1513,7 +1515,7 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
             ],
             position="topright"
         )
-
+    
         st_folium(
             m2,
             width=None,
