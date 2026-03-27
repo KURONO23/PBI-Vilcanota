@@ -482,7 +482,28 @@ def fit_map_to_gdf(
     def _fit(candidate):
         if candidate is None or len(candidate) == 0:
             return False
+
         candidate = to_wgs(candidate)
+
+        try:
+            geom_types = set(candidate.geometry.geom_type.dropna().astype(str).tolist())
+        except Exception:
+            return False
+
+        try:
+            if geom_types.issubset({"Point", "MultiPoint"}):
+                geom = candidate.geometry.iloc[0]
+                if geom.geom_type == "Point":
+                    m.location = [geom.y, geom.x]
+                    m.zoom_start = 14
+                    return True
+                elif geom.geom_type == "MultiPoint" and len(geom.geoms) > 0:
+                    pt = list(geom.geoms)[0]
+                    m.location = [pt.y, pt.x]
+                    m.zoom_start = 14
+                    return True
+        except Exception:
+            pass
 
         try:
             bounds = candidate.total_bounds
@@ -537,7 +558,11 @@ def add_gdf_to_map(
         return
 
     gdf = to_wgs(gdf)
-    geom_types = set(gdf.geometry.geom_type.dropna().astype(str).tolist())
+
+    try:
+        geom_types = set(gdf.geometry.geom_type.dropna().astype(str).tolist())
+    except Exception:
+        geom_types = set()
 
     if geom_types.issubset({"Point", "MultiPoint"}):
         fields_ok = [c for c in (tooltip_fields or []) if c in gdf.columns]
@@ -548,6 +573,7 @@ def add_gdf_to_map(
                 continue
 
             pts = [geom] if geom.geom_type == "Point" else list(geom.geoms)
+
             tt = None
             if fields_ok:
                 tt = "<br>".join([f"<b>{f}</b>: {row[f]}" for f in fields_ok])
@@ -1249,41 +1275,48 @@ with tab_pron:
     col_left, col_right = st.columns([1, 2])
 
     with col_left:
-        opciones = estaciones_validas["COMID"].astype(float).tolist()
-        etiquetas = {
-            float(row["COMID"]): f"{row['Estacion']} | COMID {row['COMID']}"
-            for _, row in estaciones_validas.iterrows()
-        }
+    opciones = estaciones_validas["COMID"].astype(float).tolist()
+    etiquetas = {
+        float(row["COMID"]): f"{row['Estacion']} | COMID {row['COMID']}"
+        for _, row in estaciones_validas.iterrows()
+    }
 
-        comid_prev = st.session_state.get("comid_sel")
-        st.session_state.comid_sel = st.selectbox(
-            "Estación / COMID",
-            options=opciones,
-            index=opciones.index(st.session_state.comid_sel) if st.session_state.comid_sel in opciones else 0,
-            format_func=lambda x: etiquetas.get(float(x), str(x)),
-            key="select_estacion_comid"
-        )
+    comid_prev = st.session_state.get("comid_sel")
+    st.session_state.comid_sel = st.selectbox(
+        "Estación / COMID",
+        options=opciones,
+        index=opciones.index(st.session_state.comid_sel) if st.session_state.comid_sel in opciones else 0,
+        format_func=lambda x: etiquetas.get(float(x), str(x)),
+        key="select_estacion_comid"
+    )
 
-        if comid_prev != st.session_state.comid_sel:
-            for _k in ["dist_now", "dist_d1", "dist_d2", "dist_d3"]:
-                st.session_state[_k] = None
-            st.rerun()
+    if comid_prev != st.session_state.comid_sel:
+        for _k in ["dist_now", "dist_d1", "dist_d2", "dist_d3"]:
+            st.session_state[_k] = None
+        st.rerun()
 
-        est_sel = estaciones_validas[
-            estaciones_validas["COMID"].astype(float) == float(st.session_state.comid_sel)
-        ].copy()
+    est_sel = estaciones_validas[
+        estaciones_validas["COMID"].astype(float) == float(st.session_state.comid_sel)
+    ].copy()
 
-        m_est = make_folium_map(tiles="OpenStreetMap")
-        add_gdf_to_map(m_est, est_sel, "#1E90FF", fill=True, weight=3, tooltip_fields=["Estacion", "COMID"])
-        fit_map_to_gdf(m_est, est_sel)
+    m_est = make_folium_map(tiles="OpenStreetMap")
+    add_gdf_to_map(
+        m_est,
+        est_sel,
+        "#1E90FF",
+        fill=True,
+        weight=3,
+        tooltip_fields=["Estacion", "COMID"]
+    )
+    fit_map_to_gdf(m_est, est_sel)
 
-        st_folium(
-            m_est,
-            width=None,
-            height=520,
-            returned_objects=[],
-            key="map_pron_estaciones"
-        )
+    st_folium(
+        m_est,
+        width=None,
+        height=520,
+        returned_objects=[],
+        key="map_pron_estaciones"
+    )
 
     with col_right:
         h, f = get_station_series(hist, fore, float(st.session_state.comid_sel))
