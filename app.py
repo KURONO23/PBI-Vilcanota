@@ -778,12 +778,20 @@ def load_estaciones():
 
 
 @st.cache_data(show_spinner=True)
-def load_base_layers():
-    agri = safe_read_gdf(FILE_AGRICOLA)
-    pop = safe_read_gdf(FILE_POBLACION)
-    vial = safe_read_gdf(FILE_VIAL)
-    edu = safe_read_gdf(FILE_EDU)
-    salud = safe_read_gdf(FILE_SALUD)
+def load_base_layers(zone_key: str):
+    zone_dir = zone_dir_from_key(zone_key)
+
+    file_agricola = zone_dir / "Agricola.shp"
+    file_poblacion = zone_dir / "Poblacion.shp"
+    file_vial = zone_dir / "Red Vial.shp"
+    file_edu = zone_dir / "Instituciones Educativas.shp"
+    file_salud = zone_dir / "Puesto de Salud.shp"
+
+    agri = safe_read_gdf(file_agricola)
+    pop = safe_read_gdf(file_poblacion)
+    vial = safe_read_gdf(file_vial)
+    edu = safe_read_gdf(file_edu)
+    salud = safe_read_gdf(file_salud)
 
     if pop is not None:
         colp = find_col(pop.columns, [
@@ -800,6 +808,7 @@ def load_base_layers():
         "vial_wgs": vial,
         "edu_wgs": edu,
         "salud_wgs": salud,
+        "zone_key": zone_key,
     }
 
 
