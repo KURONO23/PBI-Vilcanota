@@ -221,8 +221,8 @@ def detect_longlat_bounds(bounds) -> bool:
         and -180 <= xmax <= 180
         and -90 <= ymin <= 90
         and -90 <= ymax <= 90
-        and xmin < xmax
-        and ymin < ymax
+        and xmin <= xmax
+        and ymin <= ymax
     )
 
 
@@ -399,6 +399,7 @@ def coerce_crs_safely(gdf: Optional[gpd.GeoDataFrame]):
     except Exception:
         return gdf
 
+    # Si no tiene CRS, intentamos inferirlo
     if gdf.crs is None:
         if detect_longlat_bounds(bounds):
             return gdf.set_crs(4326)
@@ -409,23 +410,9 @@ def coerce_crs_safely(gdf: Optional[gpd.GeoDataFrame]):
 
         return gdf.set_crs(CRS_METRICO, allow_override=True)
 
-    try:
-        epsg_now = gdf.crs.to_epsg()
-    except Exception:
-        epsg_now = None
-
-    if epsg_now == 4326 and not detect_longlat_bounds(bounds):
-        g_no = gdf.copy()
-        g_no = g_no.set_crs(None, allow_override=True)
-
-        guessed, _ = guess_peru_utm(g_no)
-        if guessed is not None:
-            return guessed
-
-        return gdf.set_crs(CRS_METRICO, allow_override=True)
-
+    # Si YA tiene CRS, no lo fuerces de nuevo.
+    # Especialmente importante para puntos en EPSG:4326.
     return gdf
-
 
 def to_wgs(gdf: Optional[gpd.GeoDataFrame]):
     if gdf is None or len(gdf) == 0:
