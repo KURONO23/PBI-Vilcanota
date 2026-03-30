@@ -65,7 +65,7 @@ AOI_ZOOM = 13
 CRS_WGS = 4326
 CRS_METRICO = 32719
 
-REF_YEAR = 1999  # año de referencia para superponer septiembre-agosto
+REF_YEAR = 2025  # año de referencia para superponer septiembre-agosto
 
 
 # ============================================================
