@@ -409,7 +409,7 @@ def main() -> None:
 
     print("Actualizando archivos en la misma carpeta de Drive...")
     for drive_name, (buffer, mime_type) in payloads.items():
-    upload_or_update_buffer(service, DRIVE_FOLDER_ID, drive_name, buffer, mime_type)
+        upload_or_update_buffer(service, DRIVE_FOLDER_ID, drive_name, buffer, mime_type)
 
     print("Proceso terminado correctamente.")
     print("Resumen:")
