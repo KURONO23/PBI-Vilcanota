@@ -354,38 +354,36 @@ def list_files_in_folder(service, folder_id: str) -> list[dict]:
     return files
 
 
-def delete_file_by_id(service, file_id: str) -> None:
-    service.files().delete(fileId=file_id, supportsAllDrives=True).execute()
-
-
-def delete_target_files(service, folder_id: str, target_names: list[str]) -> None:
+def find_file_in_folder_by_name(service, folder_id: str, filename: str) -> dict | None:
     current_files = list_files_in_folder(service, folder_id)
-    targets = {n.lower() for n in target_names}
-    to_delete = [f for f in current_files if f["name"].lower() in targets]
-
-    for f in to_delete:
-        delete_file_by_id(service, f["id"])
-        print(f"Eliminado en Drive: {f['name']}")
+    for f in current_files:
+        if f["name"].lower() == filename.lower():
+            return f
+    return None
 
 
-def upload_buffer(
-    service,
-    folder_id: str,
-    drive_name: str,
-    buffer: io.BytesIO,
-    mime_type: str,
-) -> None:
+def upload_or_update_buffer(service, folder_id: str, drive_name: str, buffer: io.BytesIO, mime_type: str) -> None:
     buffer.seek(0)
     media = MediaIoBaseUpload(buffer, mimetype=mime_type, resumable=False)
 
-    service.files().create(
-        body={"name": drive_name, "parents": [folder_id]},
-        media_body=media,
-        fields="id,name",
-        supportsAllDrives=True,
-    ).execute()
+    existing = find_file_in_folder_by_name(service, folder_id, drive_name)
 
-    print(f"Subido a Drive: {drive_name}")
+    if existing:
+        service.files().update(
+            fileId=existing["id"],
+            media_body=media,
+            fields="id,name",
+            supportsAllDrives=True
+        ).execute()
+        print(f"Actualizado en Drive: {drive_name}")
+    else:
+        service.files().create(
+            body={"name": drive_name, "parents": [folder_id]},
+            media_body=media,
+            fields="id,name",
+            supportsAllDrives=True
+        ).execute()
+        print(f"Creado en Drive: {drive_name}")
 
 
 # ============================================================
@@ -409,12 +407,9 @@ def main() -> None:
     print("Conectando a Google Drive...")
     service = get_drive_service()
 
-    print("Borrando solo los archivos objetivo antiguos en Drive...")
-    delete_target_files(service, DRIVE_FOLDER_ID, [HIST_NAME, FORE_NAME, META_NAME])
-
-    print("Subiendo archivos nuevos a Drive...")
+    print("Actualizando archivos en la misma carpeta de Drive...")
     for drive_name, (buffer, mime_type) in payloads.items():
-        upload_buffer(service, DRIVE_FOLDER_ID, drive_name, buffer, mime_type)
+    upload_or_update_buffer(service, DRIVE_FOLDER_ID, drive_name, buffer, mime_type)
 
     print("Proceso terminado correctamente.")
     print("Resumen:")
