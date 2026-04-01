@@ -22,7 +22,7 @@ jobs:
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
-          pip install pandas numpy xarray pyarrow pyshp google-api-python-client google-auth google-auth-httplib2 h5netcdf h5py scipy
+          pip install pandas numpy xarray pyarrow pyshp google-api-python-client google-auth google-auth-httplib2 h5netcdf h5py scipy pyreadr
 
       - name: Ejecutar actualización
         env:
