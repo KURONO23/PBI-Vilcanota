@@ -1,5 +1,6 @@
 from __future__ import annotations
-
+import tempfile
+import pyreadr
 import io
 import json
 import os
@@ -35,7 +36,7 @@ GOOGLE_SERVICE_JSON_PATH = os.getenv("GOOGLE_SERVICE_JSON_PATH", "").strip()
 
 HIST_NAME = "hist_filtrado.parquet"
 FORE_NAME = "fore_filtrado.parquet"
-META_NAME = "meta_filtrado.json"
+META_NAME = "meta_filtrado.rds"
 
 
 def require_env() -> None:
@@ -280,32 +281,40 @@ def build_filtered_payloads(
             "qr_wrf": qr_wrf.reshape(-1, order="F"),
         }).sort_values(["comid", "fecha"], kind="stable").reset_index(drop=True)
 
-        meta = {
-            "comid": [float(x) for x in comid_keep.tolist()],
-            "ult_fecha_hist": str(pd.to_datetime(time_hist).max().date()),
-            "fechas_hist": [str(pd.Timestamp(x).date()) for x in time_hist],
-            "fechas_fore": [str(pd.Timestamp(x).date()) for x in pd.to_datetime(time_frst).unique()],
-            "nc_origen": f"ftp://{FTP_HOST}{FTP_DIR.rstrip('/')}/{source_name}",
-            "nc_nombre": source_name,
-            "engine_usado": engine_used,
-            "n_comid": int(len(comid_keep)),
-        }
-
         hist_buf = io.BytesIO()
         hist_df.to_parquet(hist_buf, index=False)
         hist_buf.seek(0)
-
+        
         fore_buf = io.BytesIO()
         fore_df.to_parquet(fore_buf, index=False)
         fore_buf.seek(0)
-
-        meta_buf = io.BytesIO(json.dumps(meta, ensure_ascii=False, indent=2).encode("utf-8"))
+        
+        meta_df = pd.DataFrame({
+            "comid_json": [json.dumps([float(x) for x in comid_keep.tolist()], ensure_ascii=False)],
+            "ult_fecha_hist": [str(pd.to_datetime(time_hist).max().date())],
+            "fechas_hist_json": [json.dumps([str(pd.Timestamp(x).date()) for x in time_hist], ensure_ascii=False)],
+            "fechas_fore_json": [json.dumps([str(pd.Timestamp(x).date()) for x in pd.to_datetime(time_frst).unique()], ensure_ascii=False)],
+            "nc_origen": [f"ftp://{FTP_HOST}{FTP_DIR.rstrip('/')}/{source_name}"],
+            "nc_nombre": [source_name],
+            "engine_usado": [engine_used],
+            "n_comid": [int(len(comid_keep))],
+        })
+        
+        with tempfile.NamedTemporaryFile(suffix=".rds", delete=False) as tmp:
+            tmp_rds = tmp.name
+        
+        pyreadr.write_rds(tmp_rds, meta_df)
+        
+        with open(tmp_rds, "rb") as f:
+            meta_buf = io.BytesIO(f.read())
+        
+        os.remove(tmp_rds)
         meta_buf.seek(0)
-
+        
         return {
             HIST_NAME: (hist_buf, "application/octet-stream"),
             FORE_NAME: (fore_buf, "application/octet-stream"),
-            META_NAME: (meta_buf, "application/json"),
+            META_NAME: (meta_buf, "application/octet-stream"),
         }
 
     finally:
