@@ -3,8 +3,7 @@ name: Actualizar datos Vilcanota
 on:
   workflow_dispatch:
   schedule:
-    - cron: "45 10 * * *"
-      timezone: "America/Lima"
+    - cron: "7 16 * * *"
 
 jobs:
   actualizar:
