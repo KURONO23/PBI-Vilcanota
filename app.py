@@ -1438,89 +1438,91 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
 
     q_key = safe_key_piece(round(q_val, 2) if pd.notna(q_val) else "na")
     dist_key = safe_key_piece(distrito_sel)
-  with c_map1:
-    st.markdown('<div class="section-title">MAPA DE INUNDACIÓN</div>', unsafe_allow_html=True)
-    m1 = make_folium_map(tiles="OpenStreetMap")
-    add_gdf_to_map(m1, flood_gdf, "#1E90FF", fill=True, weight=3)
+    
 
-    if flood_gdf is not None and len(flood_gdf) > 0:
-        fit_map_to_gdf(m1, flood_gdf)
-    else:
+    with c_map1:
+      st.markdown('<div class="section-title">MAPA DE INUNDACIÓN</div>', unsafe_allow_html=True)
+      m1 = make_folium_map(tiles="OpenStreetMap")
+      add_gdf_to_map(m1, flood_gdf, "#1E90FF", fill=True, weight=3)
+
+      if flood_gdf is not None and len(flood_gdf) > 0:
+          fit_map_to_gdf(m1, flood_gdf)
+      else:
         fit_map_to_gdf(m1, station_gdf)
 
     # ← FUERA del if/else, siempre se ejecutan
-    add_map_legend(
-        m1,
-        "Capas",
-        [("Inundación", "#1E90FF", "fill")],
-        position="topright"
-    )
-    st_folium(
-        m1,
-        width=None,
-        height=560,
-        returned_objects=[],
-        key=f"map_inund_{panel_id}_{dist_key}_{q_key}"
-    )
+      add_map_legend(
+          m1,
+          "Capas",
+          [("Inundación", "#1E90FF", "fill")],
+          position="topright"
+      )
+      st_folium(
+          m1,
+          width=None,
+          height=560,
+          returned_objects=[],
+          key=f"map_inund_{panel_id}_{dist_key}_{q_key}"
+      )
 
-with c_map2:
-    st.markdown('<div class="section-title">AFECTACIONES Y ELEMENTOS EXPUESTOS</div>', unsafe_allow_html=True)
-    m2 = make_folium_map(tiles="OpenStreetMap")
-    geom_fit = None
+  with c_map2:
+      st.markdown('<div class="section-title">AFECTACIONES Y ELEMENTOS EXPUESTOS</div>', unsafe_allow_html=True)
+      m2 = make_folium_map(tiles="OpenStreetMap")
+      geom_fit = None
 
-    if exp["agri_af"] is not None and len(exp["agri_af"]):
-        add_gdf_to_map(m2, exp["agri_af"], "#00B050", fill=True, weight=2)
-        geom_fit = exp["agri_af"]
+      if exp["agri_af"] is not None and len(exp["agri_af"]):
+          add_gdf_to_map(m2, exp["agri_af"], "#00B050", fill=True, weight=2)
+          geom_fit = exp["agri_af"]
 
-    if exp["pop_af"] is not None and len(exp["pop_af"]):
-        add_gdf_to_map(m2, exp["pop_af"], "#b71c1c", fill=True, weight=2, tooltip_fields=["__pob__"])
-        if geom_fit is None:
-            geom_fit = exp["pop_af"]
+      if exp["pop_af"] is not None and len(exp["pop_af"]):
+          add_gdf_to_map(m2, exp["pop_af"], "#b71c1c", fill=True, weight=2, tooltip_fields=["__pob__"])
+          if geom_fit is None:
+              geom_fit = exp["pop_af"]
 
-    if exp["edu_af"] is not None and len(exp["edu_af"]):
-        add_gdf_to_map(m2, exp["edu_af"], "#0d47a1", fill=True, weight=2)
-        if geom_fit is None:
-            geom_fit = exp["edu_af"]
+      if exp["edu_af"] is not None and len(exp["edu_af"]):
+          add_gdf_to_map(m2, exp["edu_af"], "#0d47a1", fill=True, weight=2)
+          if geom_fit is None:
+              geom_fit = exp["edu_af"]
 
-    if exp["salud_af"] is not None and len(exp["salud_af"]):
-        add_gdf_to_map(m2, exp["salud_af"], "#c62828", fill=True, weight=2)
-        if geom_fit is None:
-            geom_fit = exp["salud_af"]
+      if exp["salud_af"] is not None and len(exp["salud_af"]):
+          add_gdf_to_map(m2, exp["salud_af"], "#c62828", fill=True, weight=2)
+          if geom_fit is None:
+              geom_fit = exp["salud_af"]
 
-    if exp["vial_af"] is not None and len(exp["vial_af"]):
-        add_gdf_to_map(m2, exp["vial_af"], "#FFFFFF", fill=False, weight=8)
-        add_gdf_to_map(m2, exp["vial_af"], "#8E24AA", fill=False, weight=5)
-        if geom_fit is None:
-            geom_fit = exp["vial_af"]
+      if exp["vial_af"] is not None and len(exp["vial_af"]):
+          add_gdf_to_map(m2, exp["vial_af"], "#FFFFFF", fill=False, weight=8)
+          add_gdf_to_map(m2, exp["vial_af"], "#8E24AA", fill=False, weight=5)
+          if geom_fit is None:
+              geom_fit = exp["vial_af"]
 
-    if geom_fit is None:
-        geom_fit = flood_gdf
+      if geom_fit is None:
+          geom_fit = flood_gdf
 
-    if geom_fit is not None and len(geom_fit) > 0:
-        fit_map_to_gdf(m2, geom_fit)
-    else:
-        fit_map_to_gdf(m2, station_gdf)
+      if geom_fit is not None and len(geom_fit) > 0:
+          fit_map_to_gdf(m2, geom_fit)
+      else:
+          fit_map_to_gdf(m2, station_gdf)
 
-    # ← FUERA del if/else, siempre se ejecutan
-    add_map_legend(
-        m2,
-        "Capas",
-        [
-            ("Agrícola afectada", "#00B050", "fill"),
-            ("Población afectada", "#b71c1c", "fill"),
-            ("Vial afectada", "#8E24AA", "line"),
-            ("Educación afectada", "#0d47a1", "fill"),
-            ("Salud afectada", "#c62828", "fill"),
-        ],
-        position="topright"
-    )
-    st_folium(
-        m2,
-        width=None,
-        height=560,
-        returned_objects=[],
-        key=f"map_afecta_{panel_id}_{dist_key}_{q_key}"
-    )
+      # ← FUERA del if/else, siempre se ejecutan
+      add_map_legend(
+          m2,
+          "Capas",
+          [
+              ("Agrícola afectada", "#00B050", "fill"),
+              ("Población afectada", "#b71c1c", "fill"),
+              ("Vial afectada", "#8E24AA", "line"),
+              ("Educación afectada", "#0d47a1", "fill"),
+              ("Salud afectada", "#c62828", "fill"),
+          ],
+          position="topright"
+      )
+      st_folium(
+          m2,
+          width=None,
+          height=560,
+          returned_objects=[],
+          key=f"map_afecta_{panel_id}_{dist_key}_{q_key}"
+      )
 # ============================================================
 # TAB PBI
 # ============================================================
