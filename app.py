@@ -481,7 +481,11 @@ def fit_map_to_gdf(
         if candidate is None or len(candidate) == 0:
             return False
 
-        candidate = to_wgs(candidate)
+        # ← CLAVE: convertir siempre a WGS84 antes de intentar bounds
+        try:
+            candidate = to_wgs(candidate)
+        except Exception:
+            return False
 
         try:
             geom_types = set(candidate.geometry.geom_type.dropna().astype(str).tolist())
