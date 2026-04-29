@@ -1050,7 +1050,7 @@ def nivel_from_q(q: float):
         return "ALTO", "#ef6c00"
     if q >= 260:
         return "MODERADO", "#f9a825"
-    return "BAJO", "#2e7d32"
+    return "NORMAL", "#2e7d32"
 
 
 
@@ -1391,7 +1391,12 @@ with tab_pron:
 # ============================================================
 def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
     st.markdown(f'<div class="fecha-box">{fecha_texto}</div>', unsafe_allow_html=True)
-
+    level_txt, level_color = nivel_from_q(q_val)
+    # ← NUEVO: corte temprano si está en estado normal
+    if level_txt in ("NORMAL", "SIN DATO"):
+        st.html(nivel_card_html(level_txt, level_color, q_val))
+        st.info("El caudal se encuentra en niveles normales. No se activan mapas ni cálculos de exposición.")
+        return
     station_gdf = estaciones_validas[
         estaciones_validas["COMID"].astype(float) == float(st.session_state.comid_sel)
     ].copy()
