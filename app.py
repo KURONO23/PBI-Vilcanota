@@ -1391,12 +1391,12 @@ with tab_pron:
 # ============================================================
 def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
     st.markdown(f'<div class="fecha-box">{fecha_texto}</div>', unsafe_allow_html=True)
+
     level_txt, level_color = nivel_from_q(q_val)
-    # ← NUEVO: corte temprano si está en estado normal
-    if level_txt in ("NORMAL", "SIN DATO"):
-        st.html(nivel_card_html(level_txt, level_color, q_val))
-        st.info("El caudal se encuentra en niveles normales. No se activan mapas ni cálculos de exposición.")
-        return
+
+    # ← NUEVO: si es NORMAL, forzar flood_gdf a None (mapas vacíos, exposiciones en 0)
+    es_normal = level_txt in ("NORMAL", "SIN DATO")
+
     station_gdf = estaciones_validas[
         estaciones_validas["COMID"].astype(float) == float(st.session_state.comid_sel)
     ].copy()
@@ -1407,7 +1407,6 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
     distrito_sel = st.session_state.get(f"dist_{panel_id}", distritos[0] if distritos else None)
 
     with c_side:
-        level_txt, level_color = nivel_from_q(q_val)
         st.html(nivel_card_html(level_txt, level_color, q_val))
 
         with st.container(border=True):
@@ -1422,11 +1421,16 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
                 )
                 st.session_state[f"dist_{panel_id}"] = distrito_sel
             else:
-                st.warning(f"No se detectaron distritos para el COMID seleccionado en la zona {base_layers.get('zone_key', '')}.")
+                st.warning(f"No se detectaron distritos para el COMID seleccionado.")
                 distrito_sel = None
 
-    flood_gdf = flood_geom_from_qd(flood_index, q_val, distrito_sel, float(st.session_state.comid_sel)) if distrito_sel else None
-    exp = compute_exposures(base_layers, flood_gdf)
+    # ← CLAVE: si es normal, no buscar polígono de inundación
+    if es_normal:
+        flood_gdf = None
+    else:
+        flood_gdf = flood_geom_from_qd(flood_index, q_val, distrito_sel, float(st.session_state.comid_sel)) if distrito_sel else None
+
+    exp = compute_exposures(base_layers, flood_gdf)  # con flood_gdf=None devuelve todo None → todo 0
 
     q_key = safe_key_piece(round(q_val, 2) if pd.notna(q_val) else "na")
     dist_key = safe_key_piece(distrito_sel)
