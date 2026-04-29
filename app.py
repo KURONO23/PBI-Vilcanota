@@ -1438,18 +1438,17 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
 
     q_key = safe_key_piece(round(q_val, 2) if pd.notna(q_val) else "na")
     dist_key = safe_key_piece(distrito_sel)
-
+  
     with c_map1:
-        
     st.markdown('<div class="section-title">MAPA DE INUNDACIÓN</div>', unsafe_allow_html=True)
     m1 = make_folium_map(tiles="OpenStreetMap")
     add_gdf_to_map(m1, flood_gdf, "#1E90FF", fill=True, weight=3)
     
     # ← CAMBIO: si flood_gdf es None, centrar directo en la estación
-        if flood_gdf is not None and len(flood_gdf) > 0:
-            fit_map_to_gdf(m1, flood_gdf)
-        else:
-            fit_map_to_gdf(m1, station_gdf) 
+    if flood_gdf is not None and len(flood_gdf) > 0:
+        fit_map_to_gdf(m1, flood_gdf)
+    else:
+        fit_map_to_gdf(m1, station_gdf)  # centra en la estación directamente
 
         add_map_legend(
             m1,
