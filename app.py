@@ -1465,7 +1465,7 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
           key=f"map_inund_{panel_id}_{dist_key}_{q_key}"
       )
 
-  with c_map2:
+    with c_map2:
       st.markdown('<div class="section-title">AFECTACIONES Y ELEMENTOS EXPUESTOS</div>', unsafe_allow_html=True)
       m2 = make_folium_map(tiles="OpenStreetMap")
       geom_fit = None
