@@ -1502,12 +1502,11 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
         if geom_fit is None:
             geom_fit = flood_gdf
     
-        # ← CAMBIO: mismo criterio
-        if geom_fit is not None and len(geom_fit) > 0:
-            fit_map_to_gdf(m2, geom_fit)
-        else:
-            fit_map_to_gdf(m2, station_gdf)  # centra en la estación directamente
-    
+# ← CAMBIO: mismo criterio
+    if geom_fit is not None and len(geom_fit) > 0:
+        fit_map_to_gdf(m2, geom_fit)
+    else:
+        fit_map_to_gdf(m2, station_gdf)  # centra en la estación directamente
         add_map_legend(
             m2,
             "Capas",
