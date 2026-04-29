@@ -1440,13 +1440,15 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
     dist_key = safe_key_piece(distrito_sel)
 
     with c_map1:
-        st.markdown('<div class="section-title">MAPA DE INUNDACIÓN</div>', unsafe_allow_html=True)
-
-        m1 = make_folium_map(tiles="OpenStreetMap")
-        add_gdf_to_map(m1, flood_gdf, "#1E90FF", fill=True, weight=3)
-
-        # SOLO zoom, NO dibujar estación
-        fit_map_to_gdf(m1, flood_gdf, fallback_gdf=station_gdf)
+    st.markdown('<div class="section-title">MAPA DE INUNDACIÓN</div>', unsafe_allow_html=True)
+    m1 = make_folium_map(tiles="OpenStreetMap")
+    add_gdf_to_map(m1, flood_gdf, "#1E90FF", fill=True, weight=3)
+    
+    # ← CAMBIO: si flood_gdf es None, centrar directo en la estación
+    if flood_gdf is not None and len(flood_gdf) > 0:
+        fit_map_to_gdf(m1, flood_gdf)
+    else:
+        fit_map_to_gdf(m1, station_gdf) 
 
         add_map_legend(
             m1,
@@ -1500,8 +1502,11 @@ def render_pbi_panel(panel_id: str, q_val: float, fecha_texto: str):
         if geom_fit is None:
             geom_fit = flood_gdf
     
-        # SOLO zoom, NO dibujar estación
-        fit_map_to_gdf(m2, geom_fit, fallback_gdf=station_gdf)
+        # ← CAMBIO: mismo criterio
+        if geom_fit is not None and len(geom_fit) > 0:
+            fit_map_to_gdf(m2, geom_fit)
+        else:
+            fit_map_to_gdf(m2, station_gdf)  # centra en la estación directamente
     
         add_map_legend(
             m2,
